@@ -1824,12 +1824,17 @@ void FSceneRenderTargets::BeginRenderingMobileSeparateTranslucency(FRHICommandLi
 
 	check((*SeparateTranslucency)->GetRenderTargetItem().TargetableTexture->GetClearColor() == FLinearColor::Black);
 
-	FRHIRenderPassInfo RPInfo((*SeparateTranslucency)->GetRenderTargetItem().TargetableTexture, ERenderTargetActions::Clear_Store);
+	const FTextureRHIRef& DownSampleDepth = GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture;
 
-	RPInfo.DepthStencilRenderTarget.Action = MakeDepthStencilTargetActions(ERenderTargetActions::Load_DontStore, ERenderTargetActions::Load_Store);
-	RPInfo.DepthStencilRenderTarget.DepthStencilTarget = (const FTexture2DRHIRef&)GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture;
-	RPInfo.DepthStencilRenderTarget.ExclusiveDepthStencil = FExclusiveDepthStencil::DepthRead_StencilWrite;
-	RPInfo.DepthStencilRenderTarget.ResolveTarget = nullptr;
+	FRHIRenderPassInfo RPInfo(
+		(*SeparateTranslucency)->GetRenderTargetItem().TargetableTexture, 
+		ERenderTargetActions::Clear_Store,
+		nullptr, //ÔÝÊ±²»¹ÜMSAA
+		DownSampleDepth,
+		MakeDepthStencilTargetActions(ERenderTargetActions::Load_DontStore, ERenderTargetActions::Load_Store),
+		nullptr, 
+		FExclusiveDepthStencil::DepthRead_StencilWrite
+	);
 
 	if (UseVirtualTexturing(CurrentFeatureLevel))
 	{
@@ -1837,6 +1842,10 @@ void FSceneRenderTargets::BeginRenderingMobileSeparateTranslucency(FRHICommandLi
 	}
 
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EWritable, RPInfo.ColorRenderTargets[0].RenderTarget);
+
+	//RT Transition
+	//TransitionRenderPassTargets(RHICmdList, RPInfo);
+
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("BeginRenderingSeparateTranslucency"));
 
 	//Don't Care VR Devices
@@ -2632,7 +2641,7 @@ void FSceneRenderTargets::AllocateDeferredShadingPathRenderTargets(FRHICommandLi
 {
 	AllocateCommonDepthTargets(RHICmdList);
 
-	// Create a quarter-sized version of the scene depth.SmallColorDepthDownsampleFactor
+	// Create a quarter-sized version of the scene depth.
 	{
 		FIntPoint SmallDepthZSize(FMath::Max<uint32>(BufferSize.X / SmallColorDepthDownsampleFactor, 1), FMath::Max<uint32>(BufferSize.Y / SmallColorDepthDownsampleFactor, 1));
 

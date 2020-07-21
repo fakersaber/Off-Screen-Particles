@@ -1880,7 +1880,11 @@ protected:
 	/** On chip pre-tonemap before scene color MSAA resolve (iOS only) */
 	void PreTonemapMSAA(FRHICommandListImmediate& RHICmdList);
 
+	//YJH
 	void MobileDownSampleDepth(FRHICommandListImmediate& RHICmdList, const FViewInfo& View, float DownsamplingScale);
+
+	void UpsampleTranslucency(FRHICommandList& RHICmdList, const FViewInfo& View, float DownsamplingScale);
+	//YJH End
 
 
 	void SortMobileBasePassAfterShadowInit(FExclusiveDepthStencil::Type BasePassDepthStencilAccess, FViewVisibleCommandsPerView& ViewCommandsPerView);

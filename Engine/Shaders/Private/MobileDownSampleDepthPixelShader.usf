@@ -1,0 +1,14 @@
+#include "Common.ush"
+
+
+Texture2D<float> SLSceneDepthTexture;
+
+void Main(
+    noperspective float2 InUV : TEXCOORD0,
+    float4 Position : SV_POSITION,
+    out float OutDepth : SV_DEPTH
+)
+{
+    const uint2 PixelCoord = floor(Position.xy) * 2;
+    OutDepth = SLSceneDepthTexture.Load(uint3(PixelCoord, 0));
+}

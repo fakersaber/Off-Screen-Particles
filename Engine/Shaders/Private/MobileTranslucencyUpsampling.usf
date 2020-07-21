@@ -1,0 +1,85 @@
+#include "Common.ush"
+
+Texture2D LowResColorTexture;
+Texture2D<float> LowResDepthTexture;
+Texture2D<float> FullResDepthTexture;
+
+SamplerState BilinearClampedSampler;
+SamplerState PointClampedSampler;
+SamplerState BilinearLowDepthClampedSampler;
+
+void UpdateNearestSample(float Z, float2 UV, float FullResZ, inout float MinDist, inout float2 NearestUV)
+{
+    float DepthDelta = abs(Z - FullResZ);
+
+    FLATTEN
+    if (DepthDelta < MinDist)
+    {
+        MinDist = DepthDelta;
+        NearestUV = UV;
+    }
+}
+
+
+void MobileNearestDepthNeighborUpsamplingPS(
+    noperspective float2 UV : TEXCOORD0,
+    float4 Position : SV_POSITION,
+    out float4 OutColor : SV_Target0
+)
+{
+    // The relative depth comparison breaks down at larger distances and incorrectly causes point sampling on the skybox pixels
+    float MaxOperationDepth = 2000000.0f;
+
+    //get LowResTexelSize
+    uint w, h;
+    LowResDepthTexture.GetDimensions(w, h);
+    float2 LowResTexelSize = 1.f / float2(w, h);
+    
+	// Note: this upsample is specialized for half res to full res
+    float4 LowResDepthBuffer = LowResDepthTexture.GatherRed(BilinearLowDepthClampedSampler, UV);
+    
+    //一次全计算， Only use PersePective，minClamp最大值
+    //depth都为LinearDepth
+    float4 LowResDepth = min(1.0f / (LowResDepthBuffer * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth.xxxx);
+
+    //#TODO：直接使用FrameFetch会更快，Linear的SceneDepth在FrameBuffer的w中，但SceneDepth还是必须Load到显存上，因为要DownsampleDepth，省不了，但可以省一个DepthTexture的Input
+    float FullResDepth = FullResDepthTexture.Load(int3(uint2(Position.xy), 0));
+    FullResDepth = min(1.0f / (FullResDepth * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth);
+
+    
+    float RelativeDepthThreshold = .1f;
+
+	// Search for the UV of the low res neighbor whose depth is closest to the full res depth
+    float MinDist = 1.e8f;
+
+    float2 UV00 = UV - 0.5f * LowResTexelSize;
+    float2 NearestUV = UV00;
+    UpdateNearestSample(LowResDepth.w, UV00, FullResDepth, MinDist, NearestUV);
+
+    float2 UV10 = float2(UV00.x + LowResTexelSize.x, UV00.y);
+    UpdateNearestSample(LowResDepth.z, UV10, FullResDepth, MinDist, NearestUV);
+
+    float2 UV01 = float2(UV00.x, UV00.y + LowResTexelSize.y);
+    UpdateNearestSample(LowResDepth.x, UV01, FullResDepth, MinDist, NearestUV);
+
+    float2 UV11 = float2(UV00.x + LowResTexelSize.x, UV00.y + LowResTexelSize.y);
+    UpdateNearestSample(LowResDepth.y, UV11, FullResDepth, MinDist, NearestUV);
+	 
+    float InvFullResDepth = 1.0f / FullResDepth;
+
+    BRANCH
+    if (abs(LowResDepth.w - FullResDepth) * InvFullResDepth < RelativeDepthThreshold
+		&& abs(LowResDepth.z - FullResDepth) * InvFullResDepth < RelativeDepthThreshold
+		&& abs(LowResDepth.x - FullResDepth) * InvFullResDepth < RelativeDepthThreshold
+		&& abs(LowResDepth.y - FullResDepth) * InvFullResDepth < RelativeDepthThreshold)
+    {
+        OutColor = Texture2DSampleLevel(LowResColorTexture, BilinearClampedSampler, UV, 0);
+    }
+    else
+    {
+        OutColor = Texture2DSampleLevel(LowResColorTexture, PointClampedSampler, NearestUV, 0);
+    }
+	
+}
+
+

@@ -93,6 +93,14 @@ static TAutoConsoleVariable<int32> CVarMobileSeparateTranslucency(
 	TEXT(" 1 = On [default]"),
 	ECVF_Scalability | ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarMobileDownSampleDepthTest(
+	TEXT("r.Mobile.DownSampleDepthTest"),
+	0,
+	TEXT(" Whether to render SeparateTranslucency \n")
+	TEXT(" 0 = Off \n")
+	TEXT(" 1 = On [default]"),
+	ECVF_Scalability | ECVF_RenderThreadSafe);
+
 
 DECLARE_GPU_STAT_NAMED(MobileSceneRender, TEXT("Mobile Scene Render"));
 
@@ -460,8 +468,9 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 	//YJH Created 2020-7-19
 	//Whether to RenderDownSample Translucency
-	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 &&
-		(!bKeepDepthContent || ShaderPlatform == EShaderPlatform::SP_PCD3D_ES3_1 || ShaderPlatform == EShaderPlatform::SP_METAL_MACES3_1);
+
+	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent;
+
 	//YJH End
 
 
@@ -583,7 +592,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		ColorTargetAction = bMobileMSAA ? ERenderTargetActions::Clear_Resolve : ERenderTargetActions::Clear_Store;
 		SceneDepth = SceneContext.GetSceneDepthSurface();
 				
-		if (bRequiresTranslucencyPass)
+		if (bRequiresTranslucencyPass || bShouldRenderDownSampleTranslucency)
 		{	
 			// store targets after opaque so translucency render pass can be restarted
 			ColorTargetAction = ERenderTargetActions::Clear_Store;
@@ -764,7 +773,6 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	}
 	
 	// End of scene color rendering
-	// 如果使用off-screen render, EndRenderPass在
 	RHICmdList.EndRenderPass();
 
 	if (Scene->FXSystem && Views.IsValidIndex(0))
