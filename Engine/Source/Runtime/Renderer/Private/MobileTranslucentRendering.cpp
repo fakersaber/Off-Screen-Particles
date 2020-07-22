@@ -110,6 +110,7 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 	//移动硬件不支持FrameFetch时bShouldRenderDownSampleTranslucency必为false
 	ETranslucencyPass::Type TranslucencyPass = ViewFamily.AllowTranslucencyAfterDOF() ? ETranslucencyPass::TPT_StandardTranslucency : ETranslucencyPass::TPT_AllTranslucency;
 	bool bShouldRenderTranslucency = ShouldRenderTranslucency(TranslucencyPass);
+
 	const float DownsamplingScale = 0.5f;
 	if (bShouldRenderTranslucency)
 	{
@@ -122,6 +123,8 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 
 		for (int32 ViewIndex = 0; ViewIndex < PassViews.Num(); ViewIndex++)
 		{
+			//Test The Particles that have been culling will not increase the number of TranslucentPrimCount
+			//UE_LOG(LogTemp, Log, TEXT("1 : %d, 2 : %d, 3 : %d "), Views[ViewIndex].bHasTranslucentViewMeshElements, Views[ViewIndex].TranslucentPrimCount.Num(TranslucencyPass), ViewIndex);
 			SCOPED_CONDITIONAL_DRAW_EVENTF(RHICmdList, EventView, Views.Num() > 1, TEXT("View%d"), ViewIndex);
 
 			const FViewInfo& View = *PassViews[ViewIndex];
@@ -134,10 +137,7 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 
 				FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-				//DownSampleDepthAndDrawTranslucency Pass
-				MobileDownSampleDepth(RHICmdList, Views[ViewIndex], DownsamplingScale);
-
-				//RenderTranslucency Pass
+				//SetUp UniformBuffer for DownSampleDepthAndDrawTranslucency Pass
 				FIntPoint SeparateTranslucencyBufferSize = FIntPoint(SceneContext.GetBufferSizeXY().X * DownsamplingScale, SceneContext.GetBufferSizeXY().Y * DownsamplingScale);
 
 				// Update the parts of DownsampledTranslucencyParameters which are dependent on the buffer size and view rect
@@ -152,6 +152,9 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 				);
 
 				Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(DownsampledTranslucencyViewParameters);
+
+				//
+				MobileDownSampleDepth(RHICmdList, Views[ViewIndex], DownsamplingScale);
 			}
 			else {
 				// Mobile multi-view is not side by side stereo
@@ -413,19 +416,24 @@ public:
 	FMobileDownsampleSceneDepthPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
 		FGlobalShader(Initializer)
 	{
+		//SLSceneColorTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneColorTexture"));
 		SLSceneDepthTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneDepthTexture"));
-
 	}
 	FMobileDownsampleSceneDepthPS() {}
 
-	void SetParameters(FRHICommandList& RHICmdList)
+	void SetParameters(FRHICommandList& RHICmdList, const FViewInfo& View)
 	{
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 		//注意MSAA
+		//FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, RHICmdList.GetBoundPixelShader(), View.ViewUniformBuffer);
+		//SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneColorSurface());
+
+
 		SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneDepthSurface());
 	}
 
+	//LAYOUT_FIELD(FShaderResourceParameter, SLSceneColorTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, SLSceneDepthTexture);
 };
 
@@ -448,7 +456,7 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 		FExclusiveDepthStencil::DepthWrite_StencilWrite //
 	);
 
-	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
+	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorSurface());
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("DownsampleDepthAndSeparatePass"));
 	{
@@ -474,7 +482,7 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 
 		SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit);
 
-		PixelShader->SetParameters(RHICmdList);
+		PixelShader->SetParameters(RHICmdList, View);
 
 		const uint32 DownsampledViewSizeX = FMath::TruncToInt(View.ViewRect.Width() * DownsamplingScale);
 		const uint32 DownsampledViewSizeY = FMath::TruncToInt(View.ViewRect.Height() * DownsamplingScale);
@@ -496,8 +504,6 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 
 	//对于RT，在此保证可写
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EWritable, RPInfo.ColorRenderTargets[0].RenderTarget);
-
-	//RHICmdList.EndRenderPass();
 }
 
 
@@ -521,7 +527,7 @@ public:
 
 	LAYOUT_FIELD(FShaderResourceParameter, LowResDepthTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture);
-	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture);
+	//LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture); //直接FrameFetch
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, PointClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearLowDepthClampedSampler);
@@ -534,7 +540,7 @@ public:
 	{
 		LowResDepthTexture.Bind(Initializer.ParameterMap, TEXT("LowResDepthTexture"));
 		LowResColorTexture.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture"));
-		FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
+		//FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
 		BilinearClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearClampedSampler"));
 		PointClampedSampler.Bind(Initializer.ParameterMap, TEXT("PointClampedSampler"));
 		BilinearLowDepthClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearLowDepthClampedSampler"));
@@ -543,6 +549,7 @@ public:
 	void SetParameters(FRHICommandList& RHICmdList, const FViewInfo& View)
 	{
 		FRHIPixelShader* ShaderRHI = RHICmdList.GetBoundPixelShader();
+
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, View.ViewUniformBuffer);
 
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
@@ -551,7 +558,7 @@ public:
 		//一定使用的Resolve后的LowResColorTexture
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture, DownsampledTranslucency->GetRenderTargetItem().ShaderResourceTexture);
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResDepthTexture, SceneContext.GetDownsampledTranslucencyDepthSurface());
-		SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
+		//SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
 
 
 		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
@@ -570,18 +577,20 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-	FRHIRenderPassInfo RPInfo(
-		SceneContext.GetSceneColorSurface(),
-		ERenderTargetActions::Load_Store,
-		nullptr, //暂时不管MSAA
-		SceneContext.GetSceneDepthSurface(),
-		EDepthStencilTargetActions::LoadDepthNotStencil_DontStore, //不再需要Stencil，加载时也去掉
-		nullptr,
-		FExclusiveDepthStencil::DepthRead_StencilWrite
-	);
+
+	FRHIRenderPassInfo RPInfo(SceneContext.GetSceneColorSurface(), ERenderTargetActions::Load_Store);
+
+	//FRHIRenderPassInfo RPInfo(
+	//	SceneContext.GetSceneColorSurface(),
+	//	ERenderTargetActions::Load_Store,
+	//	nullptr, //暂时不管MSAA
+	//	nullptr,
+	//	EDepthStencilTargetActions::DontLoad_StoreDepthStencil, //深度与Stencil都不需要
+	//	nullptr,
+	//	FExclusiveDepthStencil::DepthRead_StencilWrite
+	//);
 
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetDownsampledTranslucencyDepthSurface());
-	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture);
 
 	//RT Transition
@@ -628,5 +637,4 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 		ScreenVertexShader,
 		EDRF_UseTriangleOptimization);
 
-	//SceneContext.FinishRenderingSceneColor(RHICmdList);
 }
