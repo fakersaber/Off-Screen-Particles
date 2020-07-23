@@ -31,6 +31,9 @@
 #include "MeshPassProcessor.inl"
 
 
+#define SL_USE_FRAME_FETCH 0
+
+
 /** Pixel shader used to copy scene color into another texture so that materials can read from scene color with a node. */
 class FMobileCopySceneAlphaPS : public FGlobalShader
 {
@@ -426,9 +429,9 @@ public:
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 		//注意MSAA
+
 		//FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, RHICmdList.GetBoundPixelShader(), View.ViewUniformBuffer);
 		//SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneColorSurface());
-
 
 		SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneDepthSurface());
 	}
@@ -456,7 +459,9 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 		FExclusiveDepthStencil::DepthWrite_StencilWrite //
 	);
 
+	//just set input and depthRT
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorSurface());
+	RHICmdList.TransitionResource(RPInfo.DepthStencilRenderTarget.ExclusiveDepthStencil, RPInfo.DepthStencilRenderTarget.DepthStencilTarget);
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("DownsampleDepthAndSeparatePass"));
 	{
@@ -527,7 +532,9 @@ public:
 
 	LAYOUT_FIELD(FShaderResourceParameter, LowResDepthTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture);
-	//LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture); //直接FrameFetch
+#if !SL_USE_FRAME_FETCH
+	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture); 
+#endif
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, PointClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearLowDepthClampedSampler);
@@ -540,11 +547,21 @@ public:
 	{
 		LowResDepthTexture.Bind(Initializer.ParameterMap, TEXT("LowResDepthTexture"));
 		LowResColorTexture.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture"));
-		//FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
+#if !SL_USE_FRAME_FETCH
+		FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
+#endif
 		BilinearClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearClampedSampler"));
 		PointClampedSampler.Bind(Initializer.ParameterMap, TEXT("PointClampedSampler"));
 		BilinearLowDepthClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearLowDepthClampedSampler"));
 	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+
+		OutEnvironment.SetDefine(TEXT("SL_USE_FRAME_FETCH"), SL_USE_FRAME_FETCH);
+	}
+
 
 	void SetParameters(FRHICommandList& RHICmdList, const FViewInfo& View)
 	{
@@ -553,17 +570,18 @@ public:
 		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, View.ViewUniformBuffer);
 
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
-		TRefCountPtr<IPooledRenderTarget>& DownsampledTranslucency = SceneContext.SeparateTranslucencyRT;
 
 		//一定使用的Resolve后的LowResColorTexture
-		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture, DownsampledTranslucency->GetRenderTargetItem().ShaderResourceTexture);
+		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResDepthTexture, SceneContext.GetDownsampledTranslucencyDepthSurface());
-		//SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
 
+#if !SL_USE_FRAME_FETCH
+		SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
+#endif
 
 		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 		SetSamplerParameter(RHICmdList, ShaderRHI, PointClampedSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
-		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearLowDepthClampedSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
+		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearLowDepthClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
 
 };
@@ -592,9 +610,10 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetDownsampledTranslucencyDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture);
-
-	//RT Transition
-	//TransitionRenderPassTargets(RHICmdList, RPInfo);
+#if !SL_USE_FRAME_FETCH
+	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
+#endif
+	TransitionRenderPassTargets(RHICmdList, RPInfo);
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("UpsampleTranslucency"));
 

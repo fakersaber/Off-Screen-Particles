@@ -2,7 +2,10 @@
 
 Texture2D LowResColorTexture;
 Texture2D<float> LowResDepthTexture;
+
+#if !SL_USE_FRAME_FETCH
 Texture2D<float> FullResDepthTexture;
+#endif 
 
 SamplerState BilinearClampedSampler;
 SamplerState PointClampedSampler;
@@ -38,15 +41,27 @@ void MobileNearestDepthNeighborUpsamplingPS(
 	// Note: this upsample is specialized for half res to full res
     float4 LowResDepthBuffer = LowResDepthTexture.GatherRed(BilinearLowDepthClampedSampler, UV);
     
-    //一次全计算， Only use PersePective，minClamp最大值
     //depth都为LinearDepth
     float4 LowResDepth = min(1.0f / (LowResDepthBuffer * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth.xxxx);
 
-    //#TODO：直接使用FrameFetch会更快，Linear的SceneDepth在FrameBuffer的w中，但SceneDepth还是必须Load到显存上，因为要DownsampleDepth，省不了，但可以省一个DepthTexture的Input
-    float FullResDepth = FullResDepthTexture.Load(int3(uint2(Position.xy), 0));
+    float FullResDepth = 0.f;
+#if SL_USE_FRAME_FETCH
+    #if COMPILER_GLSL_ES3_1   
+        FullResDepth = FramebufferFetchES2().w;
+    #elif METAL_PROFILE && !MAC
+        FullResDepth = DepthbufferFetchES2();   //#define DepthbufferFetchES2() FramebufferFetchES2().w
+    #endif
+#else
+    FullResDepth = FullResDepthTexture.Load(int3(uint2(Position.xy), 0));
     FullResDepth = min(1.0f / (FullResDepth * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth);
-
+#endif
     
+    
+//SubPass cannot be executed at this time because the main Pass has ended 
+//#elif VULKAN_SUBPASS_DEPTHFETCH 
+//	// Special intrinsic to read from the current depth buffer
+//  FullResDepth = ConvertFromDeviceZ(VulkanSubpassDepthFetch());
+
     float RelativeDepthThreshold = .1f;
 
 	// Search for the UV of the low res neighbor whose depth is closest to the full res depth
@@ -66,6 +81,7 @@ void MobileNearestDepthNeighborUpsamplingPS(
     UpdateNearestSample(LowResDepth.y, UV11, FullResDepth, MinDist, NearestUV);
 	 
     float InvFullResDepth = 1.0f / FullResDepth;
+
 
     BRANCH
     if (abs(LowResDepth.w - FullResDepth) * InvFullResDepth < RelativeDepthThreshold

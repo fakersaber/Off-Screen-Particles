@@ -472,8 +472,6 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		&& (!bRequiresTranslucencyPass || IsSimulatedPlatform(ShaderPlatform));
 	//YJH End
 
-	//UE_LOG(LogTemp, Log, TEXT("bShouldRenderDownSampleTranslucency: %d, bRequiresTranslucencyPass %d, bKeepDepthContent %d"), bShouldRenderDownSampleTranslucency, bRequiresTranslucencyPass, bKeepDepthContent);
-
 	// Initialize global system textures (pass-through if already initialized).
 	GSystemTextures.InitializeTextures(RHICmdList, ViewFeatureLevel);
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
@@ -592,7 +590,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		ColorTargetAction = bMobileMSAA ? ERenderTargetActions::Clear_Resolve : ERenderTargetActions::Clear_Store;
 		SceneDepth = SceneContext.GetSceneDepthSurface();
 				
-		if (bRequiresTranslucencyPass)
+		if (bRequiresTranslucencyPass || bShouldRenderDownSampleTranslucency)
 		{	
 			// store targets after opaque so translucency render pass can be restarted
 			ColorTargetAction = ERenderTargetActions::Clear_Store;
