@@ -15,3 +15,12 @@
 #### NearestDownSample
 
 ![image-20200723160345299](assets/NearestDownSample.png)
+
+
+
+- [ ] 添加材质类型，即**EMeshPass**类型。
+
+- [ ] 其他Blend状态修复（如Addtive）
+
+  
+
