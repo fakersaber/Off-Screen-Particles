@@ -466,12 +466,6 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	// Whether to submit cmdbuffer with offscreen rendering before doing post-processing
 	bool bSubmitOffscreenRendering = !bGammaSpace || bRenderToSceneColor;
 
-	//YJH Created 2020-7-19
-	//Whether to RenderDownSample Translucency
-	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent 
-		&& (!bRequiresTranslucencyPass || IsSimulatedPlatform(ShaderPlatform));
-	//YJH End
-
 	// Initialize global system textures (pass-through if already initialized).
 	GSystemTextures.InitializeTextures(RHICmdList, ViewFeatureLevel);
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
@@ -557,7 +551,11 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		RenderCustomDepthPass(RHICmdList);
 	}
 		
-	//
+	//YJH Created 2020-7-19
+	//Whether to RenderDownSample Translucency
+	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent;
+	//YJH End
+
 	FRHITexture* SceneColor = nullptr;
 	FRHITexture* SceneColorResolve = nullptr;
 	FRHITexture* SceneDepth = nullptr;
