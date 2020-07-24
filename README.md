@@ -7,7 +7,6 @@
 <video src="assets/HUAWEI_META20.mp4"></video>
 
 
-
 #### Ground truth
 
 ![image-20200723155349846](assets/Ground_truth.png)
