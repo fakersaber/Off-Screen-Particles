@@ -5,13 +5,9 @@
 
 
 <video src="assets/HUAWEI_META20.mp4"></video>
-
-
 #### Ground truth
 
-![image-20200723155349846](assets/Ground_truth.png)
-
-
+![Ground_Truth](assets/Ground_Truth.png)
 
 #### BilinearDownSample
 
@@ -34,6 +30,6 @@
 
 ### #TODO
 
-- [ ] 添加材质类型，即**EMeshPass**类型。
+- [x] 添加材质类型，即**EMeshPass**类型。
 
 - [ ] 其他Blend状态修复（如Addtive）

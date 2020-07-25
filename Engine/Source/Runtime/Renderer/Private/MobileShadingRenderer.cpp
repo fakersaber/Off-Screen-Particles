@@ -553,7 +553,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		
 	//YJH Created 2020-7-19
 	//Whether to RenderDownSample Translucency
-	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent;
+	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent && View.TranslucentPrimCount.Num(ETranslucencyPass::TPT_TranslucencyDownSampleSeparate) > 0;
 	//YJH End
 
 	FRHITexture* SceneColor = nullptr;

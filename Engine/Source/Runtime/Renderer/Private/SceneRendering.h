@@ -1868,6 +1868,8 @@ protected:
 	/** Renders the base pass for translucency. */
 	void RenderTranslucency(FRHICommandListImmediate& RHICmdList, const TArrayView<const FViewInfo*> PassViews, bool bRenderToSceneColor, bool bShouldRenderDownSampleTranslucency);
 
+	void RenderTranslucency_DownSampleSeparate(FRHICommandListImmediate& RHICmdList, const TArrayView<const FViewInfo*>& PassViews);
+
 	/** Perform upscaling when post process is not used. */
 	void BasicPostProcess(FRHICommandListImmediate& RHICmdList, FViewInfo &View, bool bDoUpscale, bool bDoEditorPrimitives);
 

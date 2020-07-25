@@ -37,12 +37,12 @@
 /** Pixel shader used to copy scene color into another texture so that materials can read from scene color with a node. */
 class FMobileCopySceneAlphaPS : public FGlobalShader
 {
-	DECLARE_SHADER_TYPE(FMobileCopySceneAlphaPS,Global);
+	DECLARE_SHADER_TYPE(FMobileCopySceneAlphaPS, Global);
 public:
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return IsMobilePlatform(Parameters.Platform); }
 
-	FMobileCopySceneAlphaPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer):
+	FMobileCopySceneAlphaPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
 		FGlobalShader(Initializer)
 	{
 		SceneTextureParameters.Bind(Initializer);
@@ -58,7 +58,7 @@ private:
 	LAYOUT_FIELD(FSceneTextureShaderParameters, SceneTextureParameters)
 };
 
-IMPLEMENT_SHADER_TYPE(,FMobileCopySceneAlphaPS,TEXT("/Engine/Private/TranslucentLightingShaders.usf"),TEXT("CopySceneAlphaMain"),SF_Pixel);
+IMPLEMENT_SHADER_TYPE(, FMobileCopySceneAlphaPS, TEXT("/Engine/Private/TranslucentLightingShaders.usf"), TEXT("CopySceneAlphaMain"), SF_Pixel);
 
 void FMobileSceneRenderer::CopySceneAlpha(FRHICommandListImmediate& RHICmdList, const FViewInfo& View)
 {
@@ -73,7 +73,7 @@ void FMobileSceneRenderer::CopySceneAlpha(FRHICommandListImmediate& RHICmdList, 
 	RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
 
 	GraphicsPSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
-	GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<false,CF_Always>::GetRHI();
+	GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<false, CF_Always>::GetRHI();
 	GraphicsPSOInit.BlendState = TStaticBlendState<>::GetRHI();
 
 	int X = SceneContext.GetBufferSizeXY().X;
@@ -93,11 +93,11 @@ void FMobileSceneRenderer::CopySceneAlpha(FRHICommandListImmediate& RHICmdList, 
 
 	PixelShader->SetParameters(RHICmdList, View);
 
-	DrawRectangle( 
+	DrawRectangle(
 		RHICmdList,
-		0, 0, 
-		X, Y, 
-		0, 0, 
+		0, 0,
+		X, Y,
+		0, 0,
 		X, Y,
 		FIntPoint(X, Y),
 		SceneContext.GetBufferSizeXY(),
@@ -109,8 +109,6 @@ void FMobileSceneRenderer::CopySceneAlpha(FRHICommandListImmediate& RHICmdList, 
 
 void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdList, const TArrayView<const FViewInfo*> PassViews, bool bRenderToSceneColor, bool bShouldRenderDownSampleTranslucency)
 {
-	//YJH Created 2020-7-19
-	//移动硬件不支持FrameFetch时bShouldRenderDownSampleTranslucency必为false
 	ETranslucencyPass::Type TranslucencyPass = ViewFamily.AllowTranslucencyAfterDOF() ? ETranslucencyPass::TPT_StandardTranslucency : ETranslucencyPass::TPT_AllTranslucency;
 	bool bShouldRenderTranslucency = ShouldRenderTranslucency(TranslucencyPass);
 
@@ -118,11 +116,6 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 	if (bShouldRenderTranslucency)
 	{
 		SCOPED_DRAW_EVENT(RHICmdList, Translucency);
-
-		//新建Pass状态，结束前面Pass
-		if (bShouldRenderDownSampleTranslucency) {
-			RHICmdList.EndRenderPass();
-		}
 
 		for (int32 ViewIndex = 0; ViewIndex < PassViews.Num(); ViewIndex++)
 		{
@@ -136,35 +129,9 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 				continue;
 			}
 
-			if (bShouldRenderDownSampleTranslucency) {
-
-				FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
-
-				//SetUp UniformBuffer for DownSampleDepthAndDrawTranslucency Pass
-				FIntPoint SeparateTranslucencyBufferSize = FIntPoint(SceneContext.GetBufferSizeXY().X * DownsamplingScale, SceneContext.GetBufferSizeXY().Y * DownsamplingScale);
-
-				// Update the parts of DownsampledTranslucencyParameters which are dependent on the buffer size and view rect
-				FViewUniformShaderParameters DownsampledTranslucencyViewParameters = *View.CachedViewUniformShaderParameters;
-
-				View.SetupViewRectUniformBufferParameters(
-					DownsampledTranslucencyViewParameters,
-					SeparateTranslucencyBufferSize,
-					FIntRect(View.ViewRect.Min.X * DownsamplingScale, View.ViewRect.Min.Y * DownsamplingScale, View.ViewRect.Max.X * DownsamplingScale, View.ViewRect.Max.Y * DownsamplingScale),
-					View.ViewMatrices,
-					View.PrevViewInfo.ViewMatrices
-				);
-
-				Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(DownsampledTranslucencyViewParameters);
-
-				//
-				MobileDownSampleDepth(RHICmdList, Views[ViewIndex], DownsamplingScale);
-			}
-			else {
-				// Mobile multi-view is not side by side stereo
-				const FViewInfo& TranslucentViewport = (View.bIsMobileMultiViewEnabled) ? Views[0] : View;
-				RHICmdList.SetViewport(TranslucentViewport.ViewRect.Min.X, TranslucentViewport.ViewRect.Min.Y, 0.0f, TranslucentViewport.ViewRect.Max.X, TranslucentViewport.ViewRect.Max.Y, 1.0f);
-			}
-
+			// Mobile multi-view is not side by side stereo
+			const FViewInfo& TranslucentViewport = (View.bIsMobileMultiViewEnabled) ? Views[0] : View;
+			RHICmdList.SetViewport(TranslucentViewport.ViewRect.Min.X, TranslucentViewport.ViewRect.Min.Y, 0.0f, TranslucentViewport.ViewRect.Max.X, TranslucentViewport.ViewRect.Max.Y, 1.0f);
 
 			if (!View.Family->UseDebugViewPS())
 			{
@@ -173,23 +140,81 @@ void FMobileSceneRenderer::RenderTranslucency(FRHICommandListImmediate& RHICmdLi
 					UpdateTranslucentBasePassUniformBuffer(RHICmdList, View);
 					UpdateDirectionalLightUniformBuffers(RHICmdList, View);
 				}
-		
+
 				const EMeshPass::Type MeshPass = TranslucencyPassToMeshPass(TranslucencyPass);
 				View.ParallelMeshDrawCommandPasses[MeshPass].DispatchDraw(nullptr, RHICmdList);
 			}
-
-			if (bShouldRenderDownSampleTranslucency) {
-				//End Translucency Pass
-				RHICmdList.EndRenderPass();
-
-				//restore ViewUniformBuffer
-				Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(*View.CachedViewUniformShaderParameters);
-
-				UpsampleTranslucency(RHICmdList, View, DownsamplingScale);
-			}
 		}
 	}
+
+
+	if (bShouldRenderDownSampleTranslucency) {
+		RenderTranslucency_DownSampleSeparate(RHICmdList, PassViews);
+	}
 }
+
+void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandListImmediate& RHICmdList, const TArrayView<const FViewInfo*>& PassViews) {
+
+	const float DownsamplingScale = 0.5f;
+
+	//新建Pass状态，结束前面Pass
+	RHICmdList.EndRenderPass();
+
+	SCOPED_DRAW_EVENT(RHICmdList, TranslucencyDownSampleSeparate);
+
+	for (int32 ViewIndex = 0; ViewIndex < PassViews.Num(); ViewIndex++)
+	{
+		//Test The Particles that have been culling will not increase the number of TranslucentPrimCount
+		//UE_LOG(LogTemp, Log, TEXT("1 : %d, 2 : %d, 3 : %d "), Views[ViewIndex].bHasTranslucentViewMeshElements, Views[ViewIndex].TranslucentPrimCount.Num(TranslucencyPass), ViewIndex);
+
+		const FViewInfo& View = *PassViews[ViewIndex];
+		if (!View.ShouldRenderView())
+		{
+			continue;
+		}
+
+		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
+
+		//SetUp UniformBuffer for DownSampleDepthAndDrawTranslucency Pass
+		FIntPoint SeparateTranslucencyBufferSize = FIntPoint(SceneContext.GetBufferSizeXY().X * DownsamplingScale, SceneContext.GetBufferSizeXY().Y * DownsamplingScale);
+
+		// Update the parts of DownsampledTranslucencyParameters which are dependent on the buffer size and view rect
+		FViewUniformShaderParameters DownsampledTranslucencyViewParameters = *View.CachedViewUniformShaderParameters;
+
+		View.SetupViewRectUniformBufferParameters(
+			DownsampledTranslucencyViewParameters,
+			SeparateTranslucencyBufferSize,
+			FIntRect(View.ViewRect.Min.X * DownsamplingScale, View.ViewRect.Min.Y * DownsamplingScale, View.ViewRect.Max.X * DownsamplingScale, View.ViewRect.Max.Y * DownsamplingScale),
+			View.ViewMatrices,
+			View.PrevViewInfo.ViewMatrices
+		);
+
+		Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(DownsampledTranslucencyViewParameters);
+
+		//
+		MobileDownSampleDepth(RHICmdList, Views[ViewIndex], DownsamplingScale);
+
+
+		if (!View.Family->UseDebugViewPS())
+		{
+			if (Scene->UniformBuffers.UpdateViewUniformBuffer(View))
+			{
+				UpdateTranslucentBasePassUniformBuffer(RHICmdList, View);
+				UpdateDirectionalLightUniformBuffers(RHICmdList, View);
+			}
+
+			View.ParallelMeshDrawCommandPasses[EMeshPass::TranslucencyDownSampleSeparate].DispatchDraw(nullptr, RHICmdList);
+		}
+
+		RHICmdList.EndRenderPass();
+
+		//restore ViewUniformBuffer
+		Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(*View.CachedViewUniformShaderParameters);
+
+		UpsampleTranslucency(RHICmdList, View, DownsamplingScale);
+	}
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 // Translucent material inverse opacity render code
@@ -272,11 +297,11 @@ bool FMobileSceneRenderer::RenderInverseOpacity(FRHICommandListImmediate& RHICmd
 	SceneContext.AllocSceneColor(RHICmdList);
 
 	const bool bMobileMSAA = SceneContext.GetSceneColorSurface()->GetNumSamples() > 1;
-	
+
 	FRHITexture* SceneColorResolve = bMobileMSAA ? SceneContext.GetSceneColorTexture() : nullptr;
 	ERenderTargetActions ColorTargetAction = bMobileMSAA ? ERenderTargetActions::Clear_Resolve : ERenderTargetActions::Clear_Store;
 	FRHIRenderPassInfo RPInfo(
-		SceneContext.GetSceneColorSurface(), 
+		SceneContext.GetSceneColorSurface(),
 		ColorTargetAction,
 		SceneColorResolve,
 		SceneContext.GetSceneDepthSurface(),
@@ -298,24 +323,24 @@ bool FMobileSceneRenderer::RenderInverseOpacity(FRHICommandListImmediate& RHICmd
 		UpdateTranslucentBasePassUniformBuffer(RHICmdList, View);
 		UpdateDirectionalLightUniformBuffers(RHICmdList, View);
 	}
-	
+
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("RenderInverseOpacity"));
 
 	if (ShouldRenderTranslucency(ETranslucencyPass::TPT_AllTranslucency))
-	{		
+	{
 		// Mobile multi-view is not side by side stereo
 		const FViewInfo& TranslucentViewport = (View.bIsMobileMultiViewEnabled) ? Views[0] : View;
 		RHICmdList.SetViewport(TranslucentViewport.ViewRect.Min.X, TranslucentViewport.ViewRect.Min.Y, 0.0f, TranslucentViewport.ViewRect.Max.X, TranslucentViewport.ViewRect.Max.Y, 1.0f);
 
 		View.ParallelMeshDrawCommandPasses[EMeshPass::MobileInverseOpacity].DispatchDraw(nullptr, RHICmdList);
-				
+
 		bDirty |= View.ParallelMeshDrawCommandPasses[EMeshPass::MobileInverseOpacity].HasAnyDraw();
 	}
-	
+
 	RHICmdList.EndRenderPass();
-	
+
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorTexture());
-	
+
 	return bDirty;
 }
 
@@ -361,7 +386,7 @@ private:
 			FBaseHS,
 			FBaseDS,
 			FOpacityOnlyPS> InverseOpacityShaders;
-		
+
 		InverseOpacityShaders.VertexShader = Material.GetShader<FOpacityOnlyVS>(VertexFactory->GetType());
 		InverseOpacityShaders.PixelShader = Material.GetShader<FOpacityOnlyPS>(VertexFactory->GetType());
 
@@ -371,12 +396,12 @@ private:
 		const FMeshDrawingPolicyOverrideSettings OverrideSettings = ComputeMeshOverrideSettings(MeshBatch);
 		ERasterizerFillMode MeshFillMode = ComputeMeshFillMode(MeshBatch, Material, OverrideSettings);
 		ERasterizerCullMode MeshCullMode = ComputeMeshCullMode(MeshBatch, Material, OverrideSettings);
-	
+
 		FMeshMaterialShaderElementData ShaderElementData;
 		ShaderElementData.InitializeMeshMaterialData(ViewIfDynamicMeshCommand, PrimitiveSceneProxy, MeshBatch, StaticMeshId, false);
 
 		FMeshDrawCommandSortKey SortKey = CalculateTranslucentMeshStaticSortKey(PrimitiveSceneProxy, MeshBatch.MeshIdInPrimitive);
-		
+
 		BuildMeshDrawCommands(
 			MeshBatch,
 			BatchElementMask,
@@ -451,7 +476,7 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 
 	FRHIRenderPassInfo RPInfo(
 		SceneContext.GetSeparateTranslucency(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture,
-		ERenderTargetActions::Clear_Store, 
+		ERenderTargetActions::Clear_Store,
 		nullptr, //暂时不管MSAA
 		SceneContext.GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture,
 		EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil,  //Depth与Stencil必须Load，并且一旦Load了Depth那么Stencil肯定也被加载了
@@ -503,7 +528,7 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 			0, 0,
 			View.ViewRect.Width(), View.ViewRect.Height(),
 			FIntPoint(DownsampledViewSizeX, DownsampledViewSizeY),
-			View.ViewRect.Size(), 
+			View.ViewRect.Size(),
 			ScreenVertexShader,
 			EDRF_UseTriangleOptimization);
 	}
@@ -534,7 +559,7 @@ public:
 	LAYOUT_FIELD(FShaderResourceParameter, LowResDepthTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture);
 #if !SL_USE_FRAME_FETCH
-	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture); 
+	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture);
 #endif
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, PointClampedSampler);
