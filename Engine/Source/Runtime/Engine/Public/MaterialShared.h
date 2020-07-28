@@ -2957,6 +2957,9 @@ struct FMaterialShaderParameters
 			uint64 bIsUsedWithWater : 1;
 			uint64 bIsTranslucencyWritingVelocity : 1;
 			uint64 bIsTranslucencyWritingCustomDepth : 1;
+			//YJH Created By 2020-7-28
+			uint64 bIsDownSampleSeparateTranslucency : 1;
+			//End
 			uint64 bIsDitheredLODTransition : 1;
 			uint64 bIsUsedWithInstancedStaticMeshes : 1;
 			uint64 bHasRuntimeVirtualTextureOutput : 1;
@@ -3020,6 +3023,9 @@ struct FMaterialShaderParameters
 		bIsUsedWithWater = InMaterial->IsUsedWithWater();
 		bIsTranslucencyWritingVelocity = InMaterial->IsTranslucencyWritingVelocity();
 		bIsTranslucencyWritingCustomDepth = InMaterial->IsTranslucencyWritingCustomDepth();
+		//YJH Created By 2020-7-28
+		bIsDownSampleSeparateTranslucency = InMaterial->IsMobileDownSampleSeparateTranslucencyEnabled();
+		//End
 		bIsDitheredLODTransition = InMaterial->IsDitheredLODTransition();
 		bIsUsedWithInstancedStaticMeshes = InMaterial->IsUsedWithInstancedStaticMeshes();
 		bHasRuntimeVirtualTextureOutput = InMaterial->HasRuntimeVirtualTextureOutput();

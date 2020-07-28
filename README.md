@@ -31,5 +31,5 @@
 ### #TODO
 
 - [x] 添加材质类型，即**EMeshPass**类型。
-
+- [x] 修复移动端上TranslucencyBasePass SceneDepth获取失败问题（其全部使用FrameFetch）
 - [ ] 其他Blend状态修复（如Addtive）

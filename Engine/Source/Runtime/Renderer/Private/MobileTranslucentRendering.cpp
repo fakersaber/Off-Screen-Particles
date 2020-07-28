@@ -191,9 +191,7 @@ void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandList
 
 		Scene->UniformBuffers.ViewUniformBuffer.UpdateUniformBufferImmediate(DownsampledTranslucencyViewParameters);
 
-		//
 		MobileDownSampleDepth(RHICmdList, Views[ViewIndex], DownsamplingScale);
-
 
 		if (!View.Family->UseDebugViewPS())
 		{
@@ -203,6 +201,7 @@ void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandList
 				UpdateDirectionalLightUniformBuffers(RHICmdList, View);
 			}
 
+			//移动平台的SceneDepth总是倾向于从Tile中读取，但在DownSample的Pass中需要从Texture中读取
 			View.ParallelMeshDrawCommandPasses[EMeshPass::TranslucencyDownSampleSeparate].DispatchDraw(nullptr, RHICmdList);
 		}
 
