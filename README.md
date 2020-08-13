@@ -51,3 +51,4 @@
 
 - 尽量不要在DownSampleTranslucency的Material使用Depth Fade节点，会增加较多开销。且加剧边缘的**Artifact**
 - 低端机本来Shading消耗就比较少，不太适用这个技术，比较适合于中端手机。
+- // Because we don’t have a half-resolution SceneColor and cannot use a half-resolution SceneDepth as input，we either use FrameFetchDepth or sample the full-resolution SceneColor directly
