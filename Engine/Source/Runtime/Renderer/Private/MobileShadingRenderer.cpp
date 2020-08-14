@@ -93,13 +93,6 @@ static TAutoConsoleVariable<int32> CVarMobileSeparateTranslucency(
 	TEXT(" 1 = On [default]"),
 	ECVF_Scalability | ECVF_RenderThreadSafe);
 
-static TAutoConsoleVariable<int32> CVarMobileDownSampleDepthTest(
-	TEXT("r.Mobile.DownSampleDepthTest"),
-	0,
-	TEXT(" Whether to render SeparateTranslucency \n")
-	TEXT(" 0 = Off \n")
-	TEXT(" 1 = On [default]"),
-	ECVF_Scalability | ECVF_RenderThreadSafe);
 
 
 DECLARE_GPU_STAT_NAMED(MobileSceneRender, TEXT("Mobile Scene Render"));
@@ -295,6 +288,11 @@ void FMobileSceneRenderer::InitViews(FRHICommandListImmediate& RHICmdList)
 
 	PostVisibilityFrameSetup(ILCTaskData);
 
+	// #change by wh, 2020/8/2
+	// After Post Visibility Frame Setup, because wu need light visible info
+	MobileComputeLightGrid(RHICmdList);
+	// end
+
 	// Find out whether custom depth pass should be rendered.
 	{
 		const bool bGammaSpace = !IsMobileHDR();
@@ -364,6 +362,13 @@ void FMobileSceneRenderer::InitViews(FRHICommandListImmediate& RHICmdList)
 			Extension->PrepareView(&Views[ViewIndex]);
 		}
 	}
+
+	// #change by wh, 2020/7/26
+	if (ComputeClusterTaskEventRef.IsValid())
+	{
+		FTaskGraphInterface::Get().WaitUntilTaskCompletes(ComputeClusterTaskEventRef, ENamedThreads::GetRenderThread_Local());
+	}
+	// end
 
 	// update buffers used in cached mesh path
 	// in case there are multiple views, these buffers will be updated before rendering each view
@@ -554,6 +559,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	//YJH Created 2020-7-19
 	//Whether to RenderDownSample Translucency
 	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent && View.ParallelMeshDrawCommandPasses[EMeshPass::TranslucencyDownSampleSeparate].HasAnyDraw();
+
 	//YJH End
 
 	FRHITexture* SceneColor = nullptr;
@@ -688,6 +694,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 	RHICmdList.SetCurrentStat(GET_STATID(STAT_CLMM_Translucency));
 
+		
 	// Restart translucency render pass if needed
 	if (bRequiresTranslucencyPass)
 	{
@@ -698,13 +705,12 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 
 		DepthTargetAction = EDepthStencilTargetActions::LoadDepthStencil_DontStoreDepthStencil;
 		FExclusiveDepthStencil::Type ExclusiveDepthStencil = FExclusiveDepthStencil::DepthRead_StencilRead;
-
 		if (bModulatedShadowsInUse)
 		{
 			// FIXME: modulated shadows write to stencil
 			ExclusiveDepthStencil = FExclusiveDepthStencil::DepthRead_StencilWrite;
 		}
-
+		
 		if (bKeepDepthContent && !bMobileMSAA)
 		{
 			DepthTargetAction = EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil;
@@ -968,7 +974,7 @@ bool FMobileSceneRenderer::RequiresTranslucencyPass(FRHICommandListImmediate& RH
 	// Translucency needs to fetch scene depth, 
 	// we render opaque and translucency in a single pass if device supports frame_buffer_fetch
 
-	//UE_LOG(LogTemp, Log, TEXT("PlatForm %d, GSupportsShaderFramebufferFetch %d"), static_cast<int>(ShaderPlatform), GSupportsShaderFramebufferFetch);
+	//UE_LOG(LogTemp, Log, TEXT("PlatForm %d, GSupportsShaderDepthStencilFetch %d"), static_cast<int>(ShaderPlatform), GSupportsShaderDepthStencilFetch);
 
 	// All iOS support frame_buffer_fetch
 	if (IsMetalMobilePlatform(ShaderPlatform))

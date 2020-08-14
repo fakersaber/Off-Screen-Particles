@@ -1,15 +1,16 @@
 #include "Common.ush"
 
-Texture2D LowResColorTexture;
-Texture2D<float> LowResDepthTexture;
+uint DebugFrameFetch;
 
-#if !SL_USE_FRAME_FETCH
+Texture2D LowResColorTexture_0;
+Texture2D LowResColorTexture_1;
+Texture2D<float> LowResDepthTexture;
 Texture2D<float> FullResDepthTexture;
-#endif 
 
 SamplerState BilinearClampedSampler;
 SamplerState PointClampedSampler;
 SamplerState BilinearLowDepthClampedSampler;
+
 
 void UpdateNearestSample(float Z, float2 UV, float FullResZ, inout float MinDist, inout float2 NearestUV)
 {
@@ -41,27 +42,28 @@ void MobileNearestDepthNeighborUpsamplingPS(
 	// Note: this upsample is specialized for half res to full res
     float4 LowResDepthBuffer = LowResDepthTexture.GatherRed(BilinearLowDepthClampedSampler, UV);
     
-    //depth¶¼ÎªLinearDepth
+    //Linear Depth
     float4 LowResDepth = min(1.0f / (LowResDepthBuffer * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth.xxxx);
 
     float FullResDepth = 0.f;
-#if SL_USE_FRAME_FETCH
+    
+    
+    //for Debug 
+    BRANCH
+    if (DebugFrameFetch != 0)
+    {
     #if COMPILER_GLSL_ES3_1   
-        FullResDepth = FramebufferFetchES2().w;
+        FullResDepth = DepthbufferFetchES2(65000.0, View.InvDeviceZToWorldZTransform[2], View.InvDeviceZToWorldZTransform[3]);
     #elif METAL_PROFILE && !MAC
         FullResDepth = DepthbufferFetchES2();   //#define DepthbufferFetchES2() FramebufferFetchES2().w
     #endif
-#else
-    FullResDepth = FullResDepthTexture.Load(int3(uint2(Position.xy), 0));
-    FullResDepth = min(1.0f / (FullResDepth * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth);
-#endif
-    
-    
-//SubPass cannot be executed at this time because the main Pass has ended 
-//#elif VULKAN_SUBPASS_DEPTHFETCH 
-//	// Special intrinsic to read from the current depth buffer
-//  FullResDepth = ConvertFromDeviceZ(VulkanSubpassDepthFetch());
-
+    }
+    else
+    {
+        FullResDepth = FullResDepthTexture.Load(int3(uint2(Position.xy), 0));
+        FullResDepth = min(1.0f / (FullResDepth * View.InvDeviceZToWorldZTransform[2] - View.InvDeviceZToWorldZTransform[3]), MaxOperationDepth);
+    }
+      
     float RelativeDepthThreshold = .1f;
 
 	// Search for the UV of the low res neighbor whose depth is closest to the full res depth
@@ -89,13 +91,12 @@ void MobileNearestDepthNeighborUpsamplingPS(
 		&& abs(LowResDepth.x - FullResDepth) * InvFullResDepth < RelativeDepthThreshold
 		&& abs(LowResDepth.y - FullResDepth) * InvFullResDepth < RelativeDepthThreshold)
     {
-        OutColor = Texture2DSampleLevel(LowResColorTexture, BilinearClampedSampler, UV, 0);
+        OutColor = Texture2DSampleLevel(LowResColorTexture_0, BilinearClampedSampler, UV, 0);
     }
     else
     {
-        OutColor = Texture2DSampleLevel(LowResColorTexture, PointClampedSampler, NearestUV, 0);
+        OutColor = Texture2DSampleLevel(LowResColorTexture_1, PointClampedSampler, NearestUV, 0);
     }
-	
 }
 
 

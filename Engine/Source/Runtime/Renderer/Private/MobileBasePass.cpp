@@ -169,6 +169,16 @@ void MobileBasePass::GetShaders(
 			PixelShader
 			);
 		break;
+	case MOBILE_OPEN_CLUSTER_LIGHTS_COUNT:
+		GetMobileBasePassShaders<MOBILE_OPEN_CLUSTER_LIGHTS_COUNT>(
+			LightMapPolicyType,
+			MaterialResource,
+			VertexFactoryType,
+			bEnableSkyLight,
+			VertexShader,
+			PixelShader
+			);
+		break;
 	case 0:
 	default:
 		GetMobileBasePassShaders<0>(
@@ -206,11 +216,19 @@ int32 MobileBasePass::CalcNumMovablePointLights(const FMaterial& InMaterial, con
 {
 	const FReadOnlyCVARCache& ReadOnlyCVARCache = FReadOnlyCVARCache::Get();
 	const bool bIsUnlit = InMaterial.GetShadingModels().IsUnlit();
-	int32 OutNumMovablePointLights = (InPrimitiveSceneProxy && !bIsUnlit) ? FMath::Min<int32>(InPrimitiveSceneProxy->GetPrimitiveSceneInfo()->NumMobileMovablePointLights, ReadOnlyCVARCache.NumMobileMovablePointLights) : 0;
+	// #change by wh, 2020/8/2
+	int32 NumMobileMovableLights = InPrimitiveSceneProxy ? InPrimitiveSceneProxy->GetPrimitiveSceneInfo()->NumMobileMovablePointLights : 0;
+	static auto* MobileEnableClusterLightingCVar = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.Mobile.EnableClusterLighting"));
+	const bool bSupportClusterLighting = MobileEnableClusterLightingCVar->GetValueOnAnyThread() == 1;
+	if (/*NumMobileMovableLights >= MOBILE_OPEN_CLUSTER_LIGHTS_COUNT && */!bIsUnlit && bSupportClusterLighting)
+		return MOBILE_OPEN_CLUSTER_LIGHTS_COUNT;
+	// end
+	int32 OutNumMovablePointLights = (InPrimitiveSceneProxy && !bIsUnlit) ? FMath::Min<int32>(NumMobileMovableLights, ReadOnlyCVARCache.NumMobileMovablePointLights) : 0;
 	if (OutNumMovablePointLights > 0 && ReadOnlyCVARCache.bMobileMovablePointLightsUseStaticBranch)
 	{
 		OutNumMovablePointLights = INT32_MAX;
 	}
+
 	return OutNumMovablePointLights;
 }
 
@@ -391,9 +409,13 @@ void MobileBasePass::SetTranslucentRenderState(FMeshPassProcessorRenderState& Dr
 			}
 			break;
 		case BLEND_Additive:
-			// Add to the existing scene color
-			// #TODO 
-			DrawRenderState.SetBlendState(TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_One, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+			// Add to the existing scene color 
+			if (Material.IsMobileDownSampleSeparateTranslucencyEnabled()) {
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_One, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+			}
+			else {
+				DrawRenderState.SetBlendState(TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_One, BO_Add, BF_Zero, BF_InverseSourceAlpha>::GetRHI());
+			}			
 			break;
 		case BLEND_Modulate:
 			// Modulate with the existing scene color
@@ -783,5 +805,4 @@ FRegisterPassProcessorCreateFunction RegisterMobileTranslucencyStandardPass(&Cre
 FRegisterPassProcessorCreateFunction RegisterMobileTranslucencyDownSampleSeparatePass(&CreateMobileTranslucencyDownSampleSeparatePassProcessor, EShadingPath::Mobile, EMeshPass::TranslucencyDownSampleSeparate, EMeshPassFlags::CachedMeshCommands | EMeshPassFlags::MainView);
 //End
 FRegisterPassProcessorCreateFunction RegisterMobileTranslucencyAfterDOFPass(&CreateMobileTranslucencyAfterDOFProcessor, EShadingPath::Mobile, EMeshPass::TranslucencyAfterDOF, EMeshPassFlags::CachedMeshCommands | EMeshPassFlags::MainView);
-
 // Skipping EMeshPass::TranslucencyAfterDOFModulate because dual blending is not supported on mobile

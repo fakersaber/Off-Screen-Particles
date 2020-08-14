@@ -31,7 +31,15 @@
 #include "MeshPassProcessor.inl"
 
 
-#define SL_USE_FRAME_FETCH 0
+//YJH Created By 2020-8-14
+
+static TAutoConsoleVariable<int32> CVarMobileSeparateFrameFetchDebug(
+	TEXT("r.Mobile.SeparateFrameFetchDebug"),
+	0,
+	TEXT(" Whether to render FrameFetch \n")
+	TEXT(" 0 = Off \n")
+	TEXT(" 1 = On [default]"),
+	ECVF_Scalability | ECVF_RenderThreadSafe);
 
 
 /** Pixel shader used to copy scene color into another texture so that materials can read from scene color with a node. */
@@ -162,14 +170,10 @@ void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandList
 
 	SCOPED_DRAW_EVENT(RHICmdList, TranslucencyDownSampleSeparate);
 
-	for (int32 ViewIndex = 0; ViewIndex < PassViews.Num(); ViewIndex++)
-	{
-		//Test The Particles that have been culling will not increase the number of TranslucentPrimCount
-		//UE_LOG(LogTemp, Log, TEXT("1 : %d, 2 : %d, 3 : %d "), Views[ViewIndex].bHasTranslucentViewMeshElements, Views[ViewIndex].TranslucentPrimCount.Num(TranslucencyPass), ViewIndex);
+	for (int32 ViewIndex = 0; ViewIndex < PassViews.Num(); ViewIndex++){
 
 		const FViewInfo& View = *PassViews[ViewIndex];
-		if (!View.ShouldRenderView())
-		{
+		if (!View.ShouldRenderView()){
 			continue;
 		}
 
@@ -200,8 +204,6 @@ void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandList
 				UpdateTranslucentBasePassUniformBuffer(RHICmdList, View);
 				UpdateDirectionalLightUniformBuffers(RHICmdList, View);
 			}
-
-			//移动平台的SceneDepth总是倾向于从Tile中读取，但在DownSample的Pass中需要从Texture中读取
 			View.ParallelMeshDrawCommandPasses[EMeshPass::TranslucencyDownSampleSeparate].DispatchDraw(nullptr, RHICmdList);
 		}
 
@@ -443,7 +445,6 @@ public:
 	FMobileDownsampleSceneDepthPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
 		FGlobalShader(Initializer)
 	{
-		//SLSceneColorTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneColorTexture"));
 		SLSceneDepthTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneDepthTexture"));
 	}
 	FMobileDownsampleSceneDepthPS() {}
@@ -452,15 +453,9 @@ public:
 	{
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-		//注意MSAA
-
-		//FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, RHICmdList.GetBoundPixelShader(), View.ViewUniformBuffer);
-		//SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneColorSurface());
-
 		SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneDepthSurface());
 	}
 
-	//LAYOUT_FIELD(FShaderResourceParameter, SLSceneColorTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, SLSceneDepthTexture);
 };
 
@@ -472,21 +467,21 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
 	FIntPoint MobileSeparateTranslucencyBufferSize = FIntPoint(SceneContext.GetBufferSizeXY().X * DownsamplingScale, SceneContext.GetBufferSizeXY().Y * DownsamplingScale);
+	FRHITexture* DownSampleDepth = SceneContext.GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture;
 
 	FRHIRenderPassInfo RPInfo(
 		SceneContext.GetSeparateTranslucency(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture,
 		ERenderTargetActions::Clear_Store,
 		nullptr, //暂时不管MSAA
-		SceneContext.GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize)->GetRenderTargetItem().TargetableTexture,
-		EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil,  //Depth与Stencil必须Load，并且一旦Load了Depth那么Stencil肯定也被加载了
+		DownSampleDepth,
+		EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil,  //直接Load应该更省
 		nullptr,
 		FExclusiveDepthStencil::DepthWrite_StencilWrite //
 	);
 
+
 	//just set input and depthRT
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
-
-	//RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorSurface());
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("DownsampleDepthAndSeparatePass"));
 	{
@@ -532,7 +527,7 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 			EDRF_UseTriangleOptimization);
 	}
 
-	//对于RT，在此保证可写
+	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetDownsampledTranslucencyDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EWritable, RPInfo.ColorRenderTargets[0].RenderTarget);
 }
 
@@ -555,11 +550,13 @@ public:
 
 	}
 
+	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture_0);
+	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture_1);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResDepthTexture);
-	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture);
-#if !SL_USE_FRAME_FETCH
 	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture);
-#endif
+
+	LAYOUT_FIELD(FShaderParameter, DebugFrameFetch);
+
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, PointClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearLowDepthClampedSampler);
@@ -570,11 +567,13 @@ public:
 	FMobileTranslucencyUpsamplingPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
 		: FGlobalShader(Initializer)
 	{
+		LowResColorTexture_0.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture_0"));
+		LowResColorTexture_1.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture_1"));
 		LowResDepthTexture.Bind(Initializer.ParameterMap, TEXT("LowResDepthTexture"));
-		LowResColorTexture.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture"));
-#if !SL_USE_FRAME_FETCH
 		FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
-#endif
+
+		DebugFrameFetch.Bind(Initializer.ParameterMap, TEXT("DebugFrameFetch"));
+
 		BilinearClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearClampedSampler"));
 		PointClampedSampler.Bind(Initializer.ParameterMap, TEXT("PointClampedSampler"));
 		BilinearLowDepthClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearLowDepthClampedSampler"));
@@ -583,8 +582,6 @@ public:
 	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-
-		OutEnvironment.SetDefine(TEXT("SL_USE_FRAME_FETCH"), SL_USE_FRAME_FETCH);
 	}
 
 
@@ -596,13 +593,16 @@ public:
 
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-		//一定使用的Resolve后的LowResColorTexture
-		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
+		//Because OpenGL does not support the separation of Texture and Sampler, bind the same texture to two texture units
+		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture_0, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
+		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture_1, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResDepthTexture, SceneContext.GetDownsampledTranslucencyDepthSurface());
 
-#if !SL_USE_FRAME_FETCH
-		SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
-#endif
+		const auto UseFrameFetch = CVarMobileSeparateFrameFetchDebug.GetValueOnRenderThread();
+		if (!UseFrameFetch) {
+			SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
+		}
+		SetShaderValue(RHICmdList, ShaderRHI, DebugFrameFetch, UseFrameFetch);
 
 		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 		SetSamplerParameter(RHICmdList, ShaderRHI, PointClampedSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
@@ -620,34 +620,33 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 
 	FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-
+	//Depth and Stencil don't need
 	FRHIRenderPassInfo RPInfo(SceneContext.GetSceneColorSurface(), ERenderTargetActions::Load_Store);
 
 	//FRHIRenderPassInfo RPInfo(
-	//	SceneContext.GetSceneColorSurface(),
+	//	SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture,
 	//	ERenderTargetActions::Load_Store,
-	//	nullptr, //暂时不管MSAA
 	//	nullptr,
-	//	EDepthStencilTargetActions::DontLoad_StoreDepthStencil, //深度与Stencil都不需要
+	//	SceneContext.GetDownsampledTranslucencyDepthSurface(),
+	//	EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil,  //直接Load应该更省
 	//	nullptr,
-	//	FExclusiveDepthStencil::DepthRead_StencilWrite
+	//	FExclusiveDepthStencil::DepthRead_StencilNop //
 	//);
 
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetDownsampledTranslucencyDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture);
-#if !SL_USE_FRAME_FETCH
-	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
-#endif
+
+	//#TODO: Use macro
+	if (CVarMobileSeparateFrameFetchDebug.GetValueOnRenderThread() == 0) {
+		RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
+	}
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EWritable, RPInfo.ColorRenderTargets[0].RenderTarget);
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("UpsampleTranslucency"));
-
 	FGraphicsPipelineStateInitializer GraphicsPSOInit;
 	RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
-
 	GraphicsPSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
 	GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<false, CF_Always>::GetRHI();
-
 	GraphicsPSOInit.BlendState = TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>::GetRHI();
 
 	TShaderMapRef<FScreenVS> ScreenVertexShader(View.ShaderMap);
