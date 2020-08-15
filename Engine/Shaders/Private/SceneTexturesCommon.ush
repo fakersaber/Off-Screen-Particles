@@ -110,12 +110,13 @@ float CalcSceneDepth(float2 ScreenUV)
 
 //YJH Created 2020-8-14
 	#elif MOBILE_DOWNSAMPLE_TRANSLUCENCY
-		#if COMPILER_GLSL_ES3_1
-			return DepthbufferFetchES2(65000.0, View.InvDeviceZToWorldZTransform[2], View.InvDeviceZToWorldZTransform[3]);
-		#else
+		//#if COMPILER_GLSL_ES3_1
+			//return DepthbufferFetchES2(65000.0, View.InvDeviceZToWorldZTransform[2], View.InvDeviceZToWorldZTransform[3]);
+			//const uint2 PixelCoord = floor(ScreenUV * View.ViewSizeAndInvSize.xy);
+		//#else
 			const uint2 PixelCoord = floor(ScreenUV * View.ViewSizeAndInvSize.xy);
 			return ConvertFromDeviceZ(MobileSceneTextures.SceneDepthTexture.Load(uint3(PixelCoord, 0)));
-		#endif
+		//#endif
 //End
 	#else
 		#if METAL_PROFILE && !MAC
