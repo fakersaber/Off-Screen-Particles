@@ -32,14 +32,13 @@
 
 
 //YJH Created By 2020-8-14
-
-static TAutoConsoleVariable<int32> CVarMobileSeparateFrameFetchDebug(
-	TEXT("r.Mobile.SeparateFrameFetchDebug"),
-	0,
-	TEXT(" Whether to render FrameFetch \n")
-	TEXT(" 0 = Off \n")
-	TEXT(" 1 = On [default]"),
-	ECVF_Scalability | ECVF_RenderThreadSafe);
+//static TAutoConsoleVariable<int32> CVarMobileSeparateFrameFetchDebug(
+//	TEXT("r.Mobile.SeparateFrameFetchDebug"),
+//	0,
+//	TEXT(" Whether to render FrameFetch \n")
+//	TEXT(" 0 = Off \n")
+//	TEXT(" 1 = On [default]"),
+//	ECVF_Scalability | ECVF_RenderThreadSafe);
 
 
 /** Pixel shader used to copy scene color into another texture so that materials can read from scene color with a node. */
@@ -165,7 +164,6 @@ void FMobileSceneRenderer::RenderTranslucency_DownSampleSeparate(FRHICommandList
 
 	const float DownsamplingScale = 0.5f;
 
-	//新建Pass状态，结束前面Pass
 	RHICmdList.EndRenderPass();
 
 	SCOPED_DRAW_EVENT(RHICmdList, TranslucencyDownSampleSeparate);
@@ -445,7 +443,8 @@ public:
 	FMobileDownsampleSceneDepthPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
 		FGlobalShader(Initializer)
 	{
-		SLSceneDepthTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneDepthTexture"));
+		SLInvDeviceZToWorldZTransform.Bind(Initializer.ParameterMap, TEXT("SLInvDeviceZToWorldZTransform"));
+		SLSceneColorTexture.Bind(Initializer.ParameterMap, TEXT("SLSceneColorTexture"));
 	}
 	FMobileDownsampleSceneDepthPS() {}
 
@@ -453,10 +452,12 @@ public:
 	{
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
-		SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneDepthTexture, SceneContext.GetSceneDepthSurface());
+		SetShaderValue(RHICmdList, RHICmdList.GetBoundPixelShader(), SLInvDeviceZToWorldZTransform, View.InvDeviceZToWorldZTransform);
+		SetTextureParameter(RHICmdList, RHICmdList.GetBoundPixelShader(), SLSceneColorTexture, SceneContext.GetSceneColorSurface());
 	}
 
-	LAYOUT_FIELD(FShaderResourceParameter, SLSceneDepthTexture);
+	LAYOUT_FIELD(FShaderParameter, SLInvDeviceZToWorldZTransform);
+	LAYOUT_FIELD(FShaderResourceParameter, SLSceneColorTexture);
 };
 
 IMPLEMENT_SHADER_TYPE(, FMobileDownsampleSceneDepthPS, TEXT("/Engine/Private/MobileDownSampleDepthPixelShader.usf"), TEXT("Main"), SF_Pixel);
@@ -480,8 +481,8 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 	);
 
 
-	//just set input and depthRT
-	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
+	//Because Metal and Vulkan can't use the texture as MemoryLess as SRV, we use SceneColor
+	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneColorSurface());
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("DownsampleDepthAndSeparatePass"));
 	{
@@ -514,7 +515,6 @@ void FMobileSceneRenderer::MobileDownSampleDepth(FRHICommandListImmediate& RHICm
 
 		RHICmdList.SetViewport(0, 0, 0.0f, DownsampledViewSizeX, DownsampledViewSizeY, 1.0f);
 
-		//因为没有用到UV，无所谓UV值
 		DrawRectangle(
 			RHICmdList,
 			0, 0,
@@ -549,13 +549,12 @@ public:
 	{
 
 	}
+	LAYOUT_FIELD(FShaderParameter, SLInvDeviceZToWorldZTransform);
 
 	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture_0);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResColorTexture_1);
 	LAYOUT_FIELD(FShaderResourceParameter, LowResDepthTexture);
 	LAYOUT_FIELD(FShaderResourceParameter, FullResDepthTexture);
-
-	LAYOUT_FIELD(FShaderParameter, DebugFrameFetch);
 
 	LAYOUT_FIELD(FShaderResourceParameter, BilinearClampedSampler);
 	LAYOUT_FIELD(FShaderResourceParameter, PointClampedSampler);
@@ -567,12 +566,11 @@ public:
 	FMobileTranslucencyUpsamplingPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer)
 		: FGlobalShader(Initializer)
 	{
+		SLInvDeviceZToWorldZTransform.Bind(Initializer.ParameterMap, TEXT("SLInvDeviceZToWorldZTransform"));
 		LowResColorTexture_0.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture_0"));
 		LowResColorTexture_1.Bind(Initializer.ParameterMap, TEXT("LowResColorTexture_1"));
 		LowResDepthTexture.Bind(Initializer.ParameterMap, TEXT("LowResDepthTexture"));
 		FullResDepthTexture.Bind(Initializer.ParameterMap, TEXT("FullResDepthTexture"));
-
-		DebugFrameFetch.Bind(Initializer.ParameterMap, TEXT("DebugFrameFetch"));
 
 		BilinearClampedSampler.Bind(Initializer.ParameterMap, TEXT("BilinearClampedSampler"));
 		PointClampedSampler.Bind(Initializer.ParameterMap, TEXT("PointClampedSampler"));
@@ -589,26 +587,24 @@ public:
 	{
 		FRHIPixelShader* ShaderRHI = RHICmdList.GetBoundPixelShader();
 
-		FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, View.ViewUniformBuffer);
+		//FGlobalShader::SetParameters<FViewUniformShaderParameters>(RHICmdList, ShaderRHI, View.ViewUniformBuffer);
 
 		FSceneRenderTargets& SceneContext = FSceneRenderTargets::Get(RHICmdList);
 
+		SetShaderValue(RHICmdList, RHICmdList.GetBoundPixelShader(), SLInvDeviceZToWorldZTransform, View.InvDeviceZToWorldZTransform);
 		//Because OpenGL does not support the separation of Texture and Sampler, bind the same texture to two texture units
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture_0, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResColorTexture_1, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().ShaderResourceTexture);
 		SetTextureParameter(RHICmdList, ShaderRHI, LowResDepthTexture, SceneContext.GetDownsampledTranslucencyDepthSurface());
 
-		const auto UseFrameFetch = CVarMobileSeparateFrameFetchDebug.GetValueOnRenderThread();
-		if (!UseFrameFetch) {
-			SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
-		}
-		SetShaderValue(RHICmdList, ShaderRHI, DebugFrameFetch, UseFrameFetch);
+#if !PLATFORM_IOS && !PLATFORM_ANDROID
+		SetTextureParameter(RHICmdList, ShaderRHI, FullResDepthTexture, SceneContext.GetSceneDepthSurface());
+#endif
 
 		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 		SetSamplerParameter(RHICmdList, ShaderRHI, PointClampedSampler, TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 		SetSamplerParameter(RHICmdList, ShaderRHI, BilinearLowDepthClampedSampler, TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI());
 	}
-
 };
 
 
@@ -623,23 +619,9 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 	//Depth and Stencil don't need
 	FRHIRenderPassInfo RPInfo(SceneContext.GetSceneColorSurface(), ERenderTargetActions::Load_Store);
 
-	//FRHIRenderPassInfo RPInfo(
-	//	SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture,
-	//	ERenderTargetActions::Load_Store,
-	//	nullptr,
-	//	SceneContext.GetDownsampledTranslucencyDepthSurface(),
-	//	EDepthStencilTargetActions::LoadDepthStencil_StoreDepthStencil,  //直接Load应该更省
-	//	nullptr,
-	//	FExclusiveDepthStencil::DepthRead_StencilNop //
-	//);
-
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetDownsampledTranslucencyDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.SeparateTranslucencyRT->GetRenderTargetItem().TargetableTexture);
-
-	//#TODO: Use macro
-	if (CVarMobileSeparateFrameFetchDebug.GetValueOnRenderThread() == 0) {
-		RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
-	}
+	RHICmdList.TransitionResource(EResourceTransitionAccess::EReadable, SceneContext.GetSceneDepthSurface());
 	RHICmdList.TransitionResource(EResourceTransitionAccess::EWritable, RPInfo.ColorRenderTargets[0].RenderTarget);
 
 	RHICmdList.BeginRenderPass(RPInfo, TEXT("UpsampleTranslucency"));
@@ -665,10 +647,8 @@ void FMobileSceneRenderer::UpsampleTranslucency(FRHICommandList& RHICmdList, con
 	int32 TextureWidth = DownsampledTranslucency->GetDesc().Extent.X;
 	int32 TextureHeight = DownsampledTranslucency->GetDesc().Extent.Y;
 
-
 	RHICmdList.SetViewport(View.ViewRect.Min.X, View.ViewRect.Min.Y, 0.0f, View.ViewRect.Max.X, View.ViewRect.Max.Y, 1.0f);
 
-	//即使TextureSize发生变化，但按照比例贴图刚好写入部分
 	DrawRectangle(
 		RHICmdList,
 		0, 0,

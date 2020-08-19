@@ -1,8 +1,9 @@
 #include "Common.ush"
 
 
-//Texture2D<float4> SLSceneColorTexture;
-Texture2D<float> SLSceneDepthTexture;
+float4 SLInvDeviceZToWorldZTransform;
+Texture2D SLSceneColorTexture;
+
 void Main(
     noperspective float2 InUV : TEXCOORD0,
     float4 Position : SV_POSITION,
@@ -10,10 +11,5 @@ void Main(
 )
 {
     const uint2 PixelCoord = floor(Position.xy) * 2;
-  
-    OutDepth = SLSceneDepthTexture.Load(uint3(PixelCoord, 0));
-    
-    //float SceneDepth = SLSceneColorTexture.Load(uint3(PixelCoord, 0)).a;
-    //Only Reverse-Z Perspective
-    //OutDepth = 1.0f / ((SceneDepth + View.InvDeviceZToWorldZTransform[3]) * View.InvDeviceZToWorldZTransform[2]);
+    OutDepth = 1.f / ((SLSceneColorTexture.Load(uint3(PixelCoord, 0)).a + SLInvDeviceZToWorldZTransform[3]) * SLInvDeviceZToWorldZTransform[2]);
 }

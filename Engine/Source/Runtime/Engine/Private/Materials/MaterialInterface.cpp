@@ -177,11 +177,6 @@ FMaterialRelevance UMaterialInterface::GetRelevance_Internal(const UMaterial* Ma
 			bool bSupportsSeparateTranslucency = Material->MaterialDomain != MD_UI && Material->MaterialDomain != MD_DeferredDecal;
 			bool bMaterialSeparateTranslucency = bSupportsSeparateTranslucency && (bIsMobile ? Material->bEnableMobileSeparateTranslucency : Material->bEnableSeparateTranslucency);
 
-			//Yjh Created By 2020-7-25
-			//it's always false when Platform is Mobile
-			bool bMaterialDownSampleSeparateTransluceny = bSupportsSeparateTranslucency && (bIsMobile ? Material->bEnableMobileDownsampleSeparateTranslucency : false);
-			//End
-
 			// If dual blending is supported, and we are rendering separate translucency, then we also need to render a second pass to the modulation buffer.
 			// The modulation buffer can also be used for regular modulation shaders after DoF.
 			bool bMaterialSeparateModulation =
@@ -193,10 +188,14 @@ FMaterialRelevance UMaterialInterface::GetRelevance_Internal(const UMaterial* Ma
 			MaterialRelevance.bDistortion = MaterialResource->IsDistorted();
 			MaterialRelevance.bHairStrands = IsCompatibleWithHairStrands(MaterialResource, InFeatureLevel);
 
-			MaterialRelevance.bSeparateTranslucency = bIsTranslucent && bMaterialSeparateTranslucency && !bMaterialDownSampleSeparateTransluceny;
+			//1.Only Mobile
+			//2.Blend is Translucency or Additive,
+			MaterialRelevance.bDownSampleSeparateTranslucency = bIsMobile && Material->bEnableMobileDownsampleSeparateTranslucency && (BlendMode == BLEND_Translucent || BlendMode == BLEND_Additive);
+
+			MaterialRelevance.bSeparateTranslucency = bIsTranslucent && bMaterialSeparateTranslucency && !MaterialRelevance.bDownSampleSeparateTranslucency;
 			MaterialRelevance.bSeparateTranslucencyModulate = bIsTranslucent && bMaterialSeparateModulation;
-			MaterialRelevance.bNormalTranslucency = bIsTranslucent && !bMaterialSeparateTranslucency && !bMaterialDownSampleSeparateTransluceny;
-			MaterialRelevance.bDownSampleSeparateTranslucency = bIsTranslucent && bMaterialDownSampleSeparateTransluceny;
+			MaterialRelevance.bNormalTranslucency = bIsTranslucent && !bMaterialSeparateTranslucency && !MaterialRelevance.bDownSampleSeparateTranslucency;
+
 
 			MaterialRelevance.bDisableDepthTest = bIsTranslucent && Material->bDisableDepthTest;		
 			MaterialRelevance.bUsesSceneColorCopy = bIsTranslucent && MaterialResource->RequiresSceneColorCopy_GameThread();

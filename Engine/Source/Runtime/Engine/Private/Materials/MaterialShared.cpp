@@ -1186,7 +1186,7 @@ bool FMaterialResource::IsMobileSeparateTranslucencyEnabled() const
 
 //Yjh Created By 2020-7-25
 bool FMaterialResource::IsMobileDownSampleSeparateTranslucencyEnabled() const {
-	return Material->bEnableMobileDownsampleSeparateTranslucency;
+	return Material->bEnableMobileDownsampleSeparateTranslucency && (Material->BlendMode == BLEND_Translucent || Material->BlendMode == BLEND_Additive);
 }
 
 //End

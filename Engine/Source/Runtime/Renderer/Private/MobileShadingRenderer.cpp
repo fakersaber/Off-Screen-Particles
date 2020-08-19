@@ -559,7 +559,6 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 	//YJH Created 2020-7-19
 	//Whether to RenderDownSample Translucency
 	bool bShouldRenderDownSampleTranslucency = CVarMobileSeparateTranslucency.GetValueOnAnyThread() > 0 && !bKeepDepthContent && View.ParallelMeshDrawCommandPasses[EMeshPass::TranslucencyDownSampleSeparate].HasAnyDraw();
-
 	//YJH End
 
 	FRHITexture* SceneColor = nullptr;
@@ -594,7 +593,7 @@ void FMobileSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
 		ColorTargetAction = bMobileMSAA ? ERenderTargetActions::Clear_Resolve : ERenderTargetActions::Clear_Store;
 		SceneDepth = SceneContext.GetSceneDepthSurface();
 				
-		if (bRequiresTranslucencyPass || bShouldRenderDownSampleTranslucency)
+		if (bRequiresTranslucencyPass)
 		{	
 			// store targets after opaque so translucency render pass can be restarted
 			ColorTargetAction = ERenderTargetActions::Clear_Store;
@@ -974,7 +973,7 @@ bool FMobileSceneRenderer::RequiresTranslucencyPass(FRHICommandListImmediate& RH
 	// Translucency needs to fetch scene depth, 
 	// we render opaque and translucency in a single pass if device supports frame_buffer_fetch
 
-	//UE_LOG(LogTemp, Log, TEXT("PlatForm %d, GSupportsShaderDepthStencilFetch %d"), static_cast<int>(ShaderPlatform), GSupportsShaderDepthStencilFetch);
+	//UE_LOG(LogTemp, Log, TEXT("PlatForm %d, GSupportsShaderFramebufferFetch %d"), static_cast<int>(ShaderPlatform), GSupportsShaderFramebufferFetch);
 
 	// All iOS support frame_buffer_fetch
 	if (IsMetalMobilePlatform(ShaderPlatform))
