@@ -110,11 +110,13 @@ float CalcSceneDepth(float2 ScreenUV)
 
 //YJH Created 2020-8-14
 	#elif MOBILE_DOWNSAMPLE_TRANSLUCENCY
-		uint2 PixelCoord = round(ScreenUV * View.BufferSizeAndInvSize.xy - float2(0.5f,0.5f)) * 2;
-		return MobileSceneTextures.SceneColorTexture.Load(uint3(PixelCoord, 0)).a;
-		//return ConvertFromDeviceZ(MobileSceneTextures.SceneDepthTexture.Load(uint3(PixelCoord, 0)));
+		uint2 PixelCoord = round(ScreenUV * View.BufferSizeAndInvSize.xy - float2(0.5f,0.5f)) * 2;	
+		#if (METAL_PROFILE && !MAC) || COMPILER_GLSL_ES3_1
+			return MobileSceneTextures.SceneColorTexture.Load(uint3(PixelCoord, 0)).a;
+		#else
+			return ConvertFromDeviceZ(MobileSceneTextures.SceneDepthTexture.Load(uint3(PixelCoord, 0)));
+		#endif
 //End
-
 	#else
 		#if METAL_PROFILE && !MAC
 			#if PIXELSHADER

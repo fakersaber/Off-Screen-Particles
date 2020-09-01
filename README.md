@@ -55,7 +55,12 @@ Try to use the original depth texture directly when using DepthFade
 ## TIPS
 
 - 低端机本来Shading消耗就比较少，不太适用这个技术，比较适合于中端手机。
-
 - 若粒子有多个非Opaque材质请全部勾选，否则会渲染两次粒子。仅支持Translucency与Additive
-
 - 目前不支持MSAA，待后续需求
+
+
+
+## PS
+
+- Mobile平台不会写出SceneDepth，所有深度信息要从Alpha中获取。
+
