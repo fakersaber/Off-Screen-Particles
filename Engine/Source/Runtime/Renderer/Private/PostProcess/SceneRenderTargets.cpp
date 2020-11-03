@@ -2330,11 +2330,6 @@ void FSceneRenderTargets::AllocateMobileRenderTargets(FRHICommandListImmediate& 
 		FIntPoint FeedbackSize = FIntPoint::DivideAndRoundUp(BufferSize, FMath::Max(GVirtualTextureFeedbackFactor, 1));
 		VirtualTextureFeedback.CreateResourceGPU(RHICmdList, FeedbackSize);
 	}
-
-	//Created By 2020-8-14
-	FIntPoint MobileSeparateTranslucencyBufferSize = FIntPoint(GetBufferSizeXY().X * 0.5f, GetBufferSizeXY().Y * 0.5f);
-	GetDownsampledTranslucencyDepth(RHICmdList, MobileSeparateTranslucencyBufferSize);
-
 }
 
 // This is a helper class. It generates and provides N names with
@@ -3008,6 +3003,11 @@ void FSceneRenderTargets::ReleaseAllTargets()
 	FoveationTexture.SafeRelease();
 
 	VirtualTextureFeedback.ReleaseResources();
+
+	// @StarLight code - BEGIN DownSampleTranslucency Created By YJH
+	DownsampledTranslucencyDepthRT.SafeRelease();
+	SeparateTranslucencyRT.SafeRelease();
+	// @StarLight code - END DownSampleTranslucency Created By YJH
 }
 
 void FSceneRenderTargets::ReleaseDynamicRHI()
@@ -3454,16 +3454,12 @@ void SetupMobileSceneTextureUniformParameters(
 	FRHITexture* SceneDepth = DepthDefault;
 	const FTexture2DRHIRef& SceneDepthTextureRef = SceneContext.GetSceneDepthTexture();
 
-
-	//Yjh Created By 2020-8-14
+	//Yjh Created By 2020-8-12
 	//FrameFetch will not be performed on PC, and SceneDepth is invalid as RT binding on Mobile
 	if (bSceneTexturesValid && SceneDepthTextureRef/* && (SceneDepthTextureRef->GetFlags() & TexCreate_Memoryless) == 0*/)
 	{
 		SceneDepth = SceneDepthTextureRef.GetReference();
 	}
-
-	SceneTextureParameters.DownSampleSeparateDepthTexture = static_cast<FRHITexture*>(SceneContext.DownsampledTranslucencyDepthRT->GetRenderTargetItem().ShaderResourceTexture);
-	SceneTextureParameters.DownSampleSeparateDepthSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	//End
 
 	SceneTextureParameters.SceneDepthTexture = SceneDepth;
